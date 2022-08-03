@@ -11,6 +11,7 @@ from datetime import timedelta
 import csv
 import numpy as np
 import torch
+import pickle as pkl
 torch.multiprocessing.set_sharing_strategy('file_system')
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -281,9 +282,9 @@ def generate_new_ann(args, output_num, checkpoint_path, preloaded_data, latest_s
         # measure ANN mrr 
         _, dev_I = cpu_index.search(dev_query_embedding, 100) #I: [number of queries, topk]
         if args.nq320k:
-            top_k_hits = validate(None, test_answers, dev_I, dev_query_embedding2id, passage_embedding2id)
+            top_k_hits = validate(None, test_answers, dev_I, dev_query_embedding2id, passage_embedding2id, os.path.join(args.test_qa_path, "quesid2docid.pkl"))
         else:
-            top_k_hits = validate(passage_text, test_answers, dev_I, dev_query_embedding2id, passage_embedding2id)
+            top_k_hits = validate(passage_text, test_answers, dev_I, dev_query_embedding2id, passage_embedding2id, None)
 
 #                 # measure ANN mrr 
 #         _, dev_I = cpu_index.search(dev_query_embedding_trivia, 100) #I: [number of queries, topk]
@@ -363,10 +364,12 @@ def GenerateNegativePassaageID(args, passages, answers, query_embedding2id, pass
     return query_negative_passage
 
 
-def validate(passages, answers, closest_docs, query_embedding2id, passage_embedding2id):
+def validate(passages, answers, closest_docs, query_embedding2id, passage_embedding2id, ques2doc_path):
 
     tok_opts = {}
     tokenizer = SimpleTokenizer(**tok_opts)
+
+    ques2doc = pkl.load(open(ques2doc_path, 'rb'))
 
     logger.info('Matching answers in top docs...')
     scores = []
@@ -379,8 +382,7 @@ def validate(passages, answers, closest_docs, query_embedding2id, passage_embedd
                 text = passages[doc_id][0]
                 hits.append(has_answer(answers[query_id], text, tokenizer))
             else:
-                import pdb; pdb.set_trace()
-                hits.append(answers[query_id] == doc_id)
+                hits.append(answers[query_id] == ques2doc[doc_id])
         scores.append(hits)
 
     logger.info('Per question validation results len=%d', len(scores))
