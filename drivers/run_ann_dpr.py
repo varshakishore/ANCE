@@ -120,12 +120,12 @@ def train(args, model, tokenizer, query_cache, passage_cache):
 
 
         nq_dev_nll_loss, nq_correct_ratio = evaluate_dev(args, model, passage_cache)
-        dev_nll_loss_trivia, correct_ratio_trivia = evaluate_dev(args, model, passage_cache, "-trivia")
+#         dev_nll_loss_trivia, correct_ratio_trivia = evaluate_dev(args, model, passage_cache, "-trivia")
         if is_first_worker():
             tb_writer.add_scalar("dev_nll_loss/dev_nll_loss", nq_dev_nll_loss, global_step)
             tb_writer.add_scalar("dev_nll_loss/correct_ratio", nq_correct_ratio, global_step)
-            tb_writer.add_scalar("dev_nll_loss/dev_nll_loss_trivia", dev_nll_loss_trivia, global_step)
-            tb_writer.add_scalar("dev_nll_loss/correct_ratio_trivia", correct_ratio_trivia, global_step)
+#             tb_writer.add_scalar("dev_nll_loss/dev_nll_loss_trivia", dev_nll_loss_trivia, global_step)
+#             tb_writer.add_scalar("dev_nll_loss/correct_ratio_trivia", correct_ratio_trivia, global_step)
 
     while global_step < args.max_steps:
 
@@ -169,9 +169,9 @@ def train(args, model, tokenizer, query_cache, passage_cache):
                         # add ndcg at checkpoint step used instead of current step
                         tb_writer.add_scalar("retrieval_accuracy/top20_nq", ndcg_json['top20'], ann_checkpoint_no)
                         tb_writer.add_scalar("retrieval_accuracy/top100_nq", ndcg_json['top100'], ann_checkpoint_no)
-                        if 'top20_trivia' in ndcg_json:
-                            tb_writer.add_scalar("retrieval_accuracy/top20_trivia", ndcg_json['top20_trivia'], ann_checkpoint_no)
-                            tb_writer.add_scalar("retrieval_accuracy/top100_trivia", ndcg_json['top100_trivia'], ann_checkpoint_no)
+#                         if 'top20_trivia' in ndcg_json:
+#                             tb_writer.add_scalar("retrieval_accuracy/top20_trivia", ndcg_json['top20_trivia'], ann_checkpoint_no)
+#                             tb_writer.add_scalar("retrieval_accuracy/top100_trivia", ndcg_json['top100_trivia'], ann_checkpoint_no)
                         if last_ann_no != -1:
                             tb_writer.add_scalar("epoch", last_ann_no, global_step-1)
                         tb_writer.add_scalar("epoch", ann_no, global_step)
@@ -200,12 +200,12 @@ def train(args, model, tokenizer, query_cache, passage_cache):
                     tb_writer.add_scalar("epoch", iter_count-1, global_step-1)
                     tb_writer.add_scalar("epoch", iter_count, global_step)
             nq_dev_nll_loss, nq_correct_ratio = evaluate_dev(args, model, passage_cache)
-            dev_nll_loss_trivia, correct_ratio_trivia = evaluate_dev(args, model, passage_cache, "-trivia")
+#             dev_nll_loss_trivia, correct_ratio_trivia = evaluate_dev(args, model, passage_cache, "-trivia")
             if is_first_worker():
                 tb_writer.add_scalar("dev_nll_loss/dev_nll_loss", nq_dev_nll_loss, global_step)
                 tb_writer.add_scalar("dev_nll_loss/correct_ratio", nq_correct_ratio, global_step)
-                tb_writer.add_scalar("dev_nll_loss/dev_nll_loss_trivia", dev_nll_loss_trivia, global_step)
-                tb_writer.add_scalar("dev_nll_loss/correct_ratio_trivia", correct_ratio_trivia, global_step)
+#                 tb_writer.add_scalar("dev_nll_loss/dev_nll_loss_trivia", dev_nll_loss_trivia, global_step)
+#                 tb_writer.add_scalar("dev_nll_loss/correct_ratio_trivia", correct_ratio_trivia, global_step)
             train_dataloader_iter = iter(train_dataloader)
             batch = next(train_dataloader_iter)
             dist.barrier()

@@ -7,6 +7,7 @@ import os
 from os.path import isfile, join
 import random
 import time
+from datetime import timedelta
 import csv
 import numpy as np
 import torch
@@ -59,11 +60,43 @@ def get_latest_checkpoint(args):
         return os.path.join(args.training_dir, "checkpoint-" + str(max(checkpoint_nums))), max(checkpoint_nums)
     return args.init_model_dir, 0
 
+def load_data_nq320k(args):
+    test_qa_path = os.path.join(args.test_qa_path, "testqueries.json")
+#     trivia_test_qa_path = os.path.join(args.trivia_test_qa_path, "trivia-test.csv")
+    train_ann_path = os.path.join(args.data_dir, "train-ann")
+
+    pid2offset, offset2pid = load_mapping(args.data_dir, "pid2offset")
+
+    train_pos_id = []
+    train_answers = []
+    test_answers = []
+
+    logger.info("Loading train ann")
+    with open(train_ann_path, 'r', encoding='utf8') as f:
+        # file format: q_id, positive_pid, answers
+        tsvreader = csv.reader(f, delimiter="\t")
+        for row in tsvreader:
+            train_pos_id.append(eval(row[1]))
+            train_answers.append(eval(row[2]))
+
+    logger.info("Loading test answers")
+    with open(test_qa_path, "r", encoding="utf-8") as ifile:
+        # file format: text_id, text
+        reader = ifile.readlines()
+        for row in reader:
+            row = json.loads(row)
+            test_answers.append(int(row['doc_id']))
+
+
+    logger.info("Finished loading data, pos_id length %d, train answers length %d, test answers length %d", len(train_pos_id), len(train_answers), len(test_answers))
+
+    return (None, train_pos_id, train_answers, test_answers)
+
 
 def load_data(args):
     passage_path = os.path.join(args.passage_path, "psgs_w100.tsv")
     test_qa_path = os.path.join(args.test_qa_path, "nq-test.csv")
-    trivia_test_qa_path = os.path.join(args.trivia_test_qa_path, "trivia-test.csv")
+#     trivia_test_qa_path = os.path.join(args.trivia_test_qa_path, "trivia-test.csv")
     train_ann_path = os.path.join(args.data_dir, "train-ann")
 
     pid2offset, offset2pid = load_mapping(args.data_dir, "pid2offset")
@@ -72,7 +105,7 @@ def load_data(args):
     train_pos_id = []
     train_answers = []
     test_answers = []
-    test_answers_trivia = []
+#     test_answers_trivia = []
 
     logger.info("Loading train ann")
     with open(train_ann_path, 'r', encoding='utf8') as f:
@@ -89,12 +122,12 @@ def load_data(args):
         for row in reader:
             test_answers.append(eval(row[1]))
 
-    logger.info("Loading trivia test answers")
-    with open(trivia_test_qa_path, "r", encoding="utf-8") as ifile:
-        # file format: question, answers
-        reader = csv.reader(ifile, delimiter='\t')
-        for row in reader:
-            test_answers_trivia.append(eval(row[1]))
+#     logger.info("Loading trivia test answers")
+#     with open(trivia_test_qa_path, "r", encoding="utf-8") as ifile:
+#         # file format: question, answers
+#         reader = csv.reader(ifile, delimiter='\t')
+#         for row in reader:
+#             test_answers_trivia.append(eval(row[1]))
 
     logger.info("Loading passages")
     with open(passage_path, "r", encoding="utf-8") as tsvfile:
@@ -106,7 +139,8 @@ def load_data(args):
 
     logger.info("Finished loading data, pos_id length %d, train answers length %d, test answers length %d", len(train_pos_id), len(train_answers), len(test_answers))
 
-    return (passage_text, train_pos_id, train_answers, test_answers, test_answers_trivia)
+#     return (passage_text, train_pos_id, train_answers, test_answers, test_answers_trivia)
+    return (passage_text, train_pos_id, train_answers, test_answers)
 
 
 def load_model(args, checkpoint_path):
@@ -140,6 +174,8 @@ def InferenceEmbeddingFromStreamDataLoader(args, model, train_dataloader, is_que
     # Inference!
     logger.info("***** Running ANN Embedding Inference *****")
     logger.info("  Batch size = %d", eval_batch_size)
+    print("***** Running ANN Embedding Inference *****")
+    print("  Batch size = %d", eval_batch_size)
 
     embedding = []
     embedding2id = []
@@ -202,11 +238,12 @@ def StreamInferenceDoc(args, model, fn, prefix, f, is_query_inference = True, lo
 
 
 def generate_new_ann(args, output_num, checkpoint_path, preloaded_data, latest_step_num):
-
+    
     model = load_model(args, checkpoint_path)
     pid2offset, offset2pid = load_mapping(args.data_dir, "pid2offset")
-
+    
     logger.info("***** inference of train query *****")
+    print("***** inference of train query *****")
     train_query_collection_path = os.path.join(args.data_dir, "train-query")
     train_query_cache = EmbeddingCache(train_query_collection_path)
     with train_query_cache as emb:
@@ -218,10 +255,10 @@ def generate_new_ann(args, output_num, checkpoint_path, preloaded_data, latest_s
     with dev_query_cache as emb:
         dev_query_embedding, dev_query_embedding2id = StreamInferenceDoc(args, model, GetProcessingFn(args, query=True), "dev_query_"+ str(latest_step_num)+"_", emb, is_query_inference = True)
 
-    dev_query_collection_path_trivia = os.path.join(args.data_dir, "trivia-test-query")
-    dev_query_cache_trivia = EmbeddingCache(dev_query_collection_path_trivia)
-    with dev_query_cache_trivia as emb:
-        dev_query_embedding_trivia, dev_query_embedding2id_trivia = StreamInferenceDoc(args, model, GetProcessingFn(args, query=True), "dev_query_"+ str(latest_step_num)+"_", emb, is_query_inference = True)
+#     dev_query_collection_path_trivia = os.path.join(args.data_dir, "trivia-test-query")
+#     dev_query_cache_trivia = EmbeddingCache(dev_query_collection_path_trivia)
+#     with dev_query_cache_trivia as emb:
+#         dev_query_embedding_trivia, dev_query_embedding2id_trivia = StreamInferenceDoc(args, model, GetProcessingFn(args, query=True), "dev_query_"+ str(latest_step_num)+"_", emb, is_query_inference = True)
 
     logger.info("***** inference of passages *****")
     passage_collection_path = os.path.join(args.data_dir, "passages")
@@ -231,7 +268,8 @@ def generate_new_ann(args, output_num, checkpoint_path, preloaded_data, latest_s
     logger.info("***** Done passage inference *****")
 
     if is_first_worker():
-        passage_text, train_pos_id, train_answers, test_answers, test_answers_trivia = preloaded_data
+        passage_text, train_pos_id, train_answers, test_answers = preloaded_data
+#         passage_text, train_pos_id, train_answers, test_answers, test_answers_trivia = preloaded_data
         dim = passage_embedding.shape[1]
         print('passage embedding shape: ' + str(passage_embedding.shape))
         top_k = args.topk_training 
@@ -242,11 +280,14 @@ def generate_new_ann(args, output_num, checkpoint_path, preloaded_data, latest_s
 
         # measure ANN mrr 
         _, dev_I = cpu_index.search(dev_query_embedding, 100) #I: [number of queries, topk]
-        top_k_hits = validate(passage_text, test_answers, dev_I, dev_query_embedding2id, passage_embedding2id)
+        if args.nq320k:
+            top_k_hits = validate(None, test_answers, dev_I, dev_query_embedding2id, passage_embedding2id)
+        else:
+            top_k_hits = validate(passage_text, test_answers, dev_I, dev_query_embedding2id, passage_embedding2id)
 
-                # measure ANN mrr 
-        _, dev_I = cpu_index.search(dev_query_embedding_trivia, 100) #I: [number of queries, topk]
-        top_k_hits_trivia = validate(passage_text, test_answers_trivia, dev_I, dev_query_embedding2id_trivia, passage_embedding2id)
+#                 # measure ANN mrr 
+#         _, dev_I = cpu_index.search(dev_query_embedding_trivia, 100) #I: [number of queries, topk]
+#         top_k_hits_trivia = validate(passage_text, test_answers_trivia, dev_I, dev_query_embedding2id_trivia, passage_embedding2id)
 
         logger.info("Start searching for query embedding with length %d", len(query_embedding))
         _, I = cpu_index.search(query_embedding, top_k) #I: [number of queries, topk]
@@ -269,13 +310,17 @@ def generate_new_ann(args, output_num, checkpoint_path, preloaded_data, latest_s
                 query_id = query_embedding2id[query_idx]
                 # if not query_id in train_pos_id:
                 #     continue
-                pos_pid = train_pos_id[query_id]
+                if args.nq320k:
+                    pos_pid = int(np.random.choice(train_pos_id[query_id]))
+                else:
+                    pos_pid = train_pos_id[query_id]
                 f.write("{}\t{}\t{}\n".format(query_id, pos_pid, ','.join(str(neg_pid) for neg_pid in query_negative_passage[query_id])))
 
         ndcg_output_path = os.path.join(args.output_dir, "ann_ndcg_" + str(output_num))
         with open(ndcg_output_path, 'w') as f:
-            json.dump({'top20': top_k_hits[19], 'top100': top_k_hits[99], 'top20_trivia': top_k_hits_trivia[19], 
-                'top100_trivia': top_k_hits_trivia[99], 'checkpoint': checkpoint_path}, f)
+#             json.dump({'top20': top_k_hits[19], 'top100': top_k_hits[99], 'top20_trivia': top_k_hits_trivia[19], 
+#                 'top100_trivia': top_k_hits_trivia[99], 'checkpoint': checkpoint_path}, f)
+            json.dump({'top20': top_k_hits[19], 'top100': top_k_hits[99], 'checkpoint': checkpoint_path}, f)
 
 
 def GenerateNegativePassaageID(args, passages, answers, query_embedding2id, passage_embedding2id, closest_docs, training_query_positive_id):
@@ -288,23 +333,32 @@ def GenerateNegativePassaageID(args, passages, answers, query_embedding2id, pass
         query_id = query_embedding2id[query_idx]
 
         pos_pid = training_query_positive_id[query_id]
+        # making the type consistent for nq320k training 
+        if type(pos_pid) != tuple:
+            pos_pid = [pos_pid]
         doc_ids = [passage_embedding2id[pidx] for pidx in closest_docs[query_idx]]
 
         query_negative_passage[query_id] = []
         neg_cnt = 0
 
         for doc_id in doc_ids:
-            if doc_id == pos_pid:
+            if doc_id in pos_pid:
                 continue
             if doc_id in query_negative_passage[query_id]:
                 continue
             if neg_cnt >= args.negative_sample:
                 break
             
-            text = passages[doc_id][0]
-            if not has_answer(answers[query_id], text, tokenizer):
-                query_negative_passage[query_id].append(doc_id)
-            neg_cnt+=1
+            if passages:
+                text = passages[doc_id][0]
+                if not has_answer(answers[query_id], text, tokenizer):
+                    query_negative_passage[query_id].append(doc_id)
+                neg_cnt+=1
+            # TODO this is probably wrong
+            else:
+                if not answers[query_id]==doc_id:
+                    query_negative_passage[query_id].append(doc_id)
+                neg_cnt+=1
 
     return query_negative_passage
 
@@ -321,8 +375,12 @@ def validate(passages, answers, closest_docs, query_embedding2id, passage_embedd
         doc_ids = [passage_embedding2id[pidx] for pidx in closest_docs[query_idx]]
         hits = []
         for i, doc_id in enumerate(doc_ids):
-            text = passages[doc_id][0]
-            hits.append(has_answer(answers[query_id], text, tokenizer))
+            if passages:
+                text = passages[doc_id][0]
+                hits.append(has_answer(answers[query_id], text, tokenizer))
+            else:
+                import pdb; pdb.set_trace()
+                hits.append(answers[query_id] == doc_id)
         scores.append(hits)
 
     logger.info('Per question validation results len=%d', len(scores))
@@ -484,13 +542,15 @@ def get_arguments():
         help="test_qa_path",
     )
 
-    parser.add_argument(
-        "--trivia_test_qa_path",
-        default=None,
-        type=str,
-        required=True,
-        help="trivia_test_qa_path",
-    )
+    parser.add_argument("--nq320k", action="store_true", help="train on the nq320k setting")
+
+#     parser.add_argument(
+#         "--trivia_test_qa_path",
+#         default=None,
+#         type=str,
+#         required=True,
+#         help="trivia_test_qa_path",
+#     )
 
     args = parser.parse_args()
 
@@ -505,7 +565,7 @@ def set_env(args):
     else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         torch.cuda.set_device(args.local_rank)
         device = torch.device("cuda", args.local_rank)
-        torch.distributed.init_process_group(backend="nccl")
+        torch.distributed.init_process_group(backend="nccl", timeout=timedelta(hours = 6))
         args.n_gpu = 1
     args.device = device
 
@@ -541,7 +601,10 @@ def ann_data_gen(args):
             os.makedirs(args.output_dir)
         if not os.path.exists(args.cache_dir):
             os.makedirs(args.cache_dir)
-        preloaded_data = load_data(args)
+        if args.nq320k:
+            preloaded_data = load_data_nq320k(args)
+        else:
+            preloaded_data = load_data(args)
 
     while args.end_output_num == -1 or output_num <= args.end_output_num:
         next_checkpoint, latest_step_num = get_latest_checkpoint(args)

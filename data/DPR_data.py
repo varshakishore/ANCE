@@ -220,12 +220,13 @@ def preprocess(args):
             out_ann.writelines(nq_ann.readlines())
             out_ann.writelines(trivia_ann.readlines())
 
-
-    write_query_rel(args, pid2offset, "nq-dev.json", "dev-query", "dev-ann", "dev-data")
-    write_query_rel(args, pid2offset, "trivia-dev.json", "dev-query-trivia", "dev-ann-trivia", "dev-data-trivia", "psg_id")
-    write_qas_query(args, "nq-test.csv", "test-query")
-    write_qas_query(args, "trivia-test.csv", "trivia-test-query")
-
+    if args.data_type != 1:
+        write_query_rel(args, pid2offset, "nq-dev.json", "dev-query", "dev-ann", "dev-data")
+        write_qas_query(args, "nq-test.csv", "test-query")
+    if args.data_type != 0:
+        write_query_rel(args, pid2offset, "trivia-dev.json", "dev-query-trivia", "dev-ann-trivia", "dev-data-trivia", "psg_id")
+        write_qas_query(args, "trivia-test.csv", "trivia-test-query")
+    
 def PassagePreprocessingFn(args, line, tokenizer):
     line_arr = list(csv.reader([line], delimiter='\t'))[0]
     if line_arr[0] == 'id':
