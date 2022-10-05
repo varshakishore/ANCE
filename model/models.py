@@ -14,7 +14,8 @@ from transformers import (
 import torch.nn.functional as F
 from data.process_fn import triple_process_fn, triple2dual_process_fn
 from model.SEED_Encoder import SEEDEncoderConfig, SEEDTokenizer, SEEDEncoderForSequenceClassification,SEEDEncoderForMaskedLM
-
+import pickle as pkl
+import os
 
 class EmbeddingMixin:
     """
@@ -251,10 +252,17 @@ class BiEncoder(nn.Module):
         super(BiEncoder, self).__init__()
         self.question_model = HFBertEncoder.init_encoder(args)
         self.ctx_model = HFBertEncoder.init_encoder(args)
+        
+        if args.tie_weights:
+            self.tie_weights = True
+        else:
+            self.tie_weights = False
     def query_emb(self, input_ids, attention_mask):
         sequence_output, pooled_output, hidden_states = self.question_model(input_ids, attention_mask)
         return pooled_output
     def body_emb(self, input_ids, attention_mask):
+        if self.tie_weights: 
+            return self.query_emb(input_ids, attention_mask)
         sequence_output, pooled_output, hidden_states = self.ctx_model(input_ids, attention_mask)
         return pooled_output
     def forward(self, query_ids, attention_mask_q, input_ids_a = None, attention_mask_a = None, input_ids_b = None, attention_mask_b = None):
@@ -265,10 +273,87 @@ class BiEncoder(nn.Module):
         q_embs = self.query_emb(query_ids, attention_mask_q)
         a_embs = self.body_emb(input_ids_a, attention_mask_a)
         b_embs = self.body_emb(input_ids_b, attention_mask_b)
-        logit_matrix = torch.cat([(q_embs*a_embs).sum(-1).unsqueeze(1), (q_embs*b_embs).sum(-1).unsqueeze(1)], dim=1) #[B, 2]
-        lsm = F.log_softmax(logit_matrix, dim=1)
-        loss = -1.0*lsm[:,0]
-        return (loss.mean(),)
+        # commenting out the old loss
+        # logit_matrix = torch.cat([(q_embs*a_embs).sum(-1).unsqueeze(1), (q_embs*b_embs).sum(-1).unsqueeze(1)], dim=1) #[B, 2]
+        # lsm = F.log_softmax(logit_matrix, dim=1)
+        # loss = -1.0*lsm[:,0]
+        # return (loss.mean(),)
+
+        # import pdb; pdb.set_trace()
+        # new infonce loss func
+        scores = torch.matmul(q_embs, torch.transpose(torch.cat([a_embs, b_embs]), 0, 1)) #[B, a_embs_dim+b_embs_dim]
+        softmax_scores = F.log_softmax(scores, dim=1)
+        positive_idx_per_question = [i for i in range(len(q_embs))]
+        loss = F.nll_loss(
+            softmax_scores,
+            torch.tensor(positive_idx_per_question).to(softmax_scores.device),
+            reduction="mean",
+        )
+        return (loss,)
+
+class QueryClassifier(nn.Module):
+    """ Bi-Encoder model component. Encapsulates query/question and context/passage encoders.
+    """
+    def __init__(self, args, documentEmbeddings):
+        super(QueryClassifier, self).__init__()
+        # note here we only have question encoder
+        self.question_model = HFBertEncoder.init_encoder(args)
+        self.classifier = nn.Linear(self.question_model.config.hidden_size, len(documentEmbeddings), bias=False)
+        self.lossfunc = nn.CrossEntropyLoss()
+        self.index2docid = None
+        self.docid2index = None
+        self.ques2doc = None
+        self.offset2pid = None
+
+        # self.ques2doc = pkl.load(open("/home/vk352/ANCE/NQ320k_dataset/quesid2docid.pkl", 'rb')) # TODO remove this hardcoding
+        # self.pid2offset, self.offset2pid = load_mapping("/home/vk352/ANCE/data/NQ320k_data_original_10k", "pid2offset") #TODO remove hardcoding
+        # # set the weights of the classifier here
+
+    def query_emb(self, input_ids, attention_mask):
+        sequence_output, pooled_output, hidden_states = self.question_model(input_ids, attention_mask)
+        return pooled_output
+    def forward(self, query_ids, attention_mask_q, labels, validate=False):
+        q_embs = self.query_emb(query_ids, attention_mask_q)
+
+        top10 = 0
+        
+        if self.docid2index is None:
+            logits = self.classifier(q_embs)
+            loss = self.lossfunc(logits, labels)
+        else:    
+            new_labels = torch.tensor([self.docid2index[self.ques2doc[self.offset2pid[label.item()]]] for label in labels]).to(labels.device)
+            logits = self.classifier(q_embs)
+            loss = self.lossfunc(logits, new_labels)
+        
+        _, max_idxs = torch.max(logits, 1)
+        
+        docids = torch.tensor([self.ques2doc[self.offset2pid[label.item()]] for label in labels]).to(max_idxs.device)
+        # max_idxs_rp = torch.tensor([self.ques2doc[self.offset2pid[max_idx.item()]] for max_idx in max_idxs]).to(max_idxs.device)
+        max_idxs_rp = torch.tensor([self.index2docid[max_idx.item()] for max_idx in max_idxs]).to(max_idxs.device)
+
+        correct_predictions_count = (max_idxs_rp == docids).sum()
+
+        if validate:  
+            max_idxs_10 = torch.argsort(logits, 1, descending=True)[:, :10]
+            max_idxs_rp10 = torch.tensor([[self.index2docid[max_idx.item()] for max_idx in max_idx_row] for max_idx_row in max_idxs_10]).to(max_idxs.device)
+            top10 = (max_idxs_rp10 == docids.unsqueeze(1)).any(1).sum()
+
+        return (loss, correct_predictions_count, top10)
+        
+def load_mapping(data_dir, out_name):
+    out_path = os.path.join(
+        data_dir,
+        out_name ,
+    )
+    pid2offset = {}
+    offset2pid = {}
+    with open(out_path, 'r') as f:
+        for line in f.readlines():
+            line_arr = line.split('\t')
+            pid2offset[int(line_arr[0])] = int(line_arr[1])
+            offset2pid[int(line_arr[1])] = int(line_arr[0])
+    return pid2offset, offset2pid
+        
         
 
 # --------------------------------------------------
@@ -316,6 +401,12 @@ configs = [
                 use_mean=False,
                 tokenizer_class=SEEDTokenizer,
                 config_class=SEEDEncoderConfig,
+                ),
+    MSMarcoConfig(name="classify",
+                model=QueryClassifier,
+                tokenizer_class=BertTokenizer,
+                config_class=BertConfig,
+                use_mean=False,
                 ),
 ]
 
